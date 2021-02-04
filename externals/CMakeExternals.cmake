@@ -696,6 +696,33 @@ function(require_external NAME)
 
     external_get_property(tracking SOURCE_DIR)
     set(tracking_files "${SOURCE_DIR}/tracking/conf/tracking.conf" PARENT_SCOPE)
+  
+  #x265
+  elseif(NAME STREQUAL "x265")
+    if(TARGET x265)
+      return()
+    endif()
+
+    if(WIN32)
+      set(X265_LIB "lib/x265-static.lib")
+    else()
+      include(GNUInstallDirs)
+      set(X265_LIB "${CMAKE_INSTALL_LIBDIR}/x265-static.a")
+    endif()
+	
+	add_external_project(x265 STATIC
+	  GIT_REPOSITORY https://bitbucket.org/multicoreware/x265_git.git
+      GIT_TAG "3.4"
+      BUILD_BYPRODUCTS "<INSTALL_DIR>/${X265_LIB}"
+	  PATCH_COMMAND ${CMAKE_COMMAND} -E copy
+	    "${CMAKE_SOURCE_DIR}/externals/x265/CMakeLists.txt"
+		"<SOURCE_DIR>/CMakeLists.txt"
+      CMAKE_ARGS
+	    -DNASM_EXECUTABLE="C:/Program Files/NASM/nasm.exe"
+	    -DSTATIC_LINK_CRT=ON)
+
+    add_external_library(x265
+      LIBRARY ${X265_LIB})
 
   # zfp
   elseif(NAME STREQUAL "zfp")
