@@ -8,7 +8,7 @@ The figure below shows the CpuVideoEncoder module in an example graph in MegaMol
 
 ## Building
 [x264](https://www.videolan.org/developers/x264.html) is not included in this package, however it is required for this plugin to build.
-
+For Windows:
 Step 1: Install [MSYS2](https://www.msys2.org/)
 
 Step 2: Update MSYS2 (open msys2.exe) with the command: pacman -Syuu  (until it says there are no further updates)
@@ -27,9 +27,17 @@ Step 8: From inside the MSYS2 shell run CC=cl ./configure --enable-static --pref
 
 Step 9: From inside the MSYS2 shell run make and then make install
 
-Step 10: Copy the ".\megamol\externals\x264\x264Config.cmake" to the ".\x264\install\" folder (replace .\ with the full path)
+Step 10: Copy the ".\megamol\externals\x264\x264Config.cmake" to the ".\x264\install\" folder (replace ".\x264\install\" with the path used by the --prefix command in Step 8)
 
-Step 11: Set the x264_Dir to ".\x264\install\" (replace .\ with the full path)
+Step 11: Set the x264_Dir to ".\x264\install\" (replace ".\x264\install\" with the path used by the --prefix command in Step 8)
+
+For Linux:
+Step 1: Clone "stable" branch from https://code.videolan.org/videolan/x264/-/tree/stable
+
+Step 2: Run ./configure --enable-static --prefix=/e/Projects/CPUEncoding/x264/install --disable-cli (replace /e/Projects/CPUEncoding/x264 with the correct path to the repro)
+
+Step 3: Run make and then make install
+
 
 [x265](https://www.videolan.org/developers/x265.html) is included in this package but it requires NASM to offer the full performance.
 
