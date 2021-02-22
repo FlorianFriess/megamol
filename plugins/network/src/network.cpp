@@ -1,5 +1,5 @@
 /*
- * encoder.cpp
+ * MegaMolPlugin.cpp
  * Copyright (C) 2009-2015 by MegaMol Team
  * Alle Rechte vorbehalten.
  */
@@ -11,10 +11,7 @@
 #include "mmcore/versioninfo.h"
 #include "vislib/vislibversion.h"
 
-// Module includes
-#include "CpuVideoEncoder.h"
-
-namespace megamol::encoder {
+namespace megamol::MegaMolPlugin {
     /** Implementing the instance class of this plugin */
     class plugin_instance : public ::megamol::core::utility::plugins::Plugin200Instance {
         REGISTERPLUGIN(plugin_instance)
@@ -24,11 +21,12 @@ namespace megamol::encoder {
             : ::megamol::core::utility::plugins::Plugin200Instance(
 
                 /* machine-readable plugin assembly name */
-                "Encoder",
+                "Network",
 
                 /* human-readable plugin description */
-                "Contains different CPU and GPU based video encoder implementations such as videolan x265, x264, "
-                "NVENC, Intel Media SDK and AMD Advanced Media Framework SDK ") {
+                "Provides an MPI module that allows communications between modules on different "
+                "machines without using calls. Additionally an UDP based ethernet module that "
+                "can send and receive data via IPv4.") {
 
             // here we could perform addition initialization
         };
@@ -40,12 +38,12 @@ namespace megamol::encoder {
         virtual void registerClasses(void) {
 
             // register modules here:
-            this->module_descriptions.RegisterAutoDescription<megamol::encoder::CpuVideoEncoder>();
+
             //
             // TODO: Register your plugin's modules here
             // like:
-            //   this->module_descriptions.RegisterAutoDescription<megamol::encoder::MyModule1>();
-            //   this->module_descriptions.RegisterAutoDescription<megamol::encoder::MyModule2>();
+            //   this->module_descriptions.RegisterAutoDescription<megamol::MegaMolPlugin::MyModule1>();
+            //   this->module_descriptions.RegisterAutoDescription<megamol::MegaMolPlugin::MyModule2>();
             //   ...
             //
 
@@ -54,11 +52,11 @@ namespace megamol::encoder {
             //
             // TODO: Register your plugin's calls here
             // like:
-            //   this->call_descriptions.RegisterAutoDescription<megamol::encoder::MyCall1>();
-            //   this->call_descriptions.RegisterAutoDescription<megamol::encoder::MyCall2>();
+            //   this->call_descriptions.RegisterAutoDescription<megamol::MegaMolPlugin::MyCall1>();
+            //   this->call_descriptions.RegisterAutoDescription<megamol::MegaMolPlugin::MyCall2>();
             //   ...
             //
 
         }
     };
-} // namespace megamol::encoder
+} // namespace megamol::MegaMolPlugin

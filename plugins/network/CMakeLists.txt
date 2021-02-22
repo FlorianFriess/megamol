@@ -1,21 +1,17 @@
 #
-# MegaMol™ encoder Plugin
+# MegaMol™ network Plugin
 # Copyright 2017, by MegaMol Team
 # Alle Rechte vorbehalten. All rights reserved.
 #
-string(TOUPPER encoder EXPORT_NAME)
-option(BUILD_${EXPORT_NAME}_PLUGIN "Option to build encoder" ON)
+string(TOUPPER network EXPORT_NAME)
+option(BUILD_${EXPORT_NAME}_PLUGIN "Option to build network" ON)
 
 if(BUILD_${EXPORT_NAME}_PLUGIN)
-  project(encoder)
+  project(network)
 
   # Check option dependencies: First list item is always the current build option,
   # afterwards list the dependencies.
   set(DEP_LIST "${DEP_LIST};BUILD_${EXPORT_NAME}_PLUGIN BUILD_CORE" CACHE INTERNAL "")
-  
-  # Add externals.
-  require_external(x265)
-  find_package(x264 CONFIG REQUIRED)
 
   # Collect source files
   file(GLOB_RECURSE public_header_files RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "include/*.h")
@@ -29,11 +25,11 @@ if(BUILD_${EXPORT_NAME}_PLUGIN)
   target_compile_definitions(${PROJECT_NAME} PRIVATE ${EXPORT_NAME}_EXPORTS)
   target_include_directories(${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    "include" "src" "${X264_INCLUDE_DIRS}")
+    "include" "src")
   if(MPI_C_FOUND)
-    target_link_libraries(${PROJECT_NAME} PRIVATE core x265 MPI::MPI_C PUBLIC ${X264_LIBRARIES})
+    target_link_libraries(${PROJECT_NAME} PRIVATE core MPI::MPI_C)
   else()
-    target_link_libraries(${PROJECT_NAME} PRIVATE core x265 PUBLIC ${X264_LIBRARIES})
+  target_link_libraries(${PROJECT_NAME} PRIVATE core)
   endif()
 
   # Installation rules for generated files
