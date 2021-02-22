@@ -718,8 +718,9 @@ function(require_external NAME)
 	    "${CMAKE_SOURCE_DIR}/externals/x265/CMakeLists.txt"
 		"<SOURCE_DIR>/CMakeLists.txt"
       CMAKE_ARGS
-	    -DNASM_EXECUTABLE="C:/Program Files/NASM/nasm.exe"
-	    -DSTATIC_LINK_CRT=ON)
+	    -DENABLE_ASSEMBLY=ON
+		-DENABLE_SHARED=OFF
+	    -DSTATIC_LINK_CRT=OFF)
 
     add_external_library(x265
       LIBRARY ${X265_LIB})
