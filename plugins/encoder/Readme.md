@@ -45,5 +45,9 @@ If MPI is used make sure that the input is interleaved BGR (BGRBGRBGR...BGR) val
 ## Hints
 
 The frames copied from OpenGL are upside down, the `CpuVideoEncoder` can flip the image, which takes between 0.7ms and 2.5ms with the median being 1.2ms (tested on an AMD Ryzen 7 1700X).
+The QP value can be in the range of 1 to 51, with 1 producing the best and 51 producing the worst image quality.
+The foveated interval determines the minimum and maximum QP value used inside of the foveated regions.
+The offsetHeight, offsetWidth, overallHeight and overallWidth must be 0 in a non tiled environment.
+They are required for the foveated encoding so that the encoder knows which part of the (tiled) display it is responsible for.
 Only use an Infinite GOP length if the encoded bitstream is not saved to a file, as this setting will not produce key frames and therefore making it impossible to seek in the resulting video.
 Foveated encoding uses a moving region of interest to improve the compression (see F. Frieß, M. Braun, V. Bruder, S. Frey, G. Reina, and T. Ertl. Foveated encoding for large high-resolution displays. IEEE Transactions on Visualization and Computer Graphics, 27(2):1850–1859, 2021. doi: 10.1109/TVCG.2020.3030445).
