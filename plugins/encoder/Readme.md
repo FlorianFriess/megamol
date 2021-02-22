@@ -1,7 +1,7 @@
 # Encoder plugin
 This plugin allows to use CPU and GPU based video encoders in MegaMol to encode, and either save to a file or transmit the encoded bitstream via UPD or MPI, the content of MegaMol calls (only the CallRender3D_2 for now) or an incoming (via MPI) bitstreams.
 
-The plugin depends on [x264] (https://www.videolan.org/developers/x264.html) and [x265] (https://www.videolan.org/developers/x265.html) for the CPU based encoding. Both originate from VideoLAN and are open source projects that provide an SDK for video encoding using the h264 codec (x264) and the h265 codec (x265).
+The plugin depends on [x264](https://www.videolan.org/developers/x264.html) and [x265](https://www.videolan.org/developers/x265.html) for the CPU based encoding. Both originate from VideoLAN and are open source projects that provide an SDK for video encoding using the h264 codec (x264) and the h265 codec (x265).
 The figure below shows the CpuVideoEncoder module in an example graph in MegaMol.
 
 ![](encoder_configurator.png)
@@ -9,7 +9,7 @@ The figure below shows the CpuVideoEncoder module in an example graph in MegaMol
 ## Building
 [x264](https://www.videolan.org/developers/x264.html) is not included in this package, however it is required for this plugin to build.
 
-Step 1: Install MSYS2 (https://www.msys2.org/)
+Step 1: Install [MSYS2](https://www.msys2.org/)
 
 Step 2: Update MSYS2 (open msys2.exe) with the command: pacman -Syuu  (until it says there are no further updates)
 
@@ -31,15 +31,15 @@ Step 10: Copy the ".\megamol\externals\x264\x264Config.cmake" to the ".\x264\ins
 
 Step 11: Set the x264_Dir to ".\x264\install\" (replace .\ with the full path)
 
-[x265] (https://www.videolan.org/developers/x265.html) is included in this package but it requires NASM to offer the full performance.
+[x265](https://www.videolan.org/developers/x265.html) is included in this package but it requires NASM to offer the full performance.
 
-Step 1: Install [NASM] (https://www.nasm.us/pub/nasm/releasebuilds/?C=M;O=D) (Version 2.15.05 or newer) and check that the path does not contain a space!
+Step 1: Install [NASM](https://www.nasm.us/pub/nasm/releasebuilds/?C=M;O=D) (Version 2.15.05 or newer) and check that the path does not contain a space!
 
 Step 2: Add NASM to the PATH variable (only for Windows)
 
 ## Modules
 
-This plugin has one module: the `CpuVideoEncoder` that uses either [x264] or [x265] for encoding and it can receive input from a MegaMol call or via MPI.
+This plugin has one module: the `CpuVideoEncoder` that uses either x264 or x265 for encoding and it can receive input from a MegaMol call or via MPI.
 If MPI is used make sure that the input is interleaved BGR (BGRBGRBGR...BGR) values in the range of 0 to 255.
 
 ## Hints
