@@ -21,11 +21,12 @@ megamol::encoder::AbstractVideoEncoder::~AbstractVideoEncoder(void) {
  * megamol::encoder::AbstractVideoEncoder::AbstractVideoEncoder
  */
 megamol::encoder::AbstractVideoEncoder::AbstractVideoEncoder(void)
-        : active("active", "Bool parameter to play/stop the encoder")
+        : megamol::core::view::Renderer3DModule_2()
+        , active("active", "Bool parameter to play/stop the encoder")
         , avxSupport(false)
         , deleteOutfile(true)
         , encoderCodec("encoderCodec", "Defines the codec used by the encoder")
-        , flippFrames("flippFrames", "The slot used to turn on/off the flipping of the frames before encoding.")
+        , flipFrames("flipFrames", "The slot used to turn on/off the flipping of the frames before encoding.")
         , foveatedInterval("foveatedInterval", "The comma separated lower an upper value of the QP interval")
         , foveatedIntervalVal()
         , height(0)
@@ -42,6 +43,10 @@ megamol::encoder::AbstractVideoEncoder::AbstractVideoEncoder(void)
         , macroblockQualityReadIdx(0)
         , macroblockQualityWriteIdx(0)
         , macroblockWidth(0)
+        , mpiInputThreadRunning(false)
+        #ifdef WITH_NETWORK
+        , mpiIntraCall("mpiIntraCall", "Call to send and receive data via the MpiIntraCommunicator")
+        #endif
         , offsetHeight("offsetHeight","The height offset of the current node with respect to the overall display")
         , offsetWidth("offsetWidth","The width offset of the current node with respect to the overall display")
         , overallHeight("overallHeight","Stores the overall height, in pixel, of the display that is encoded")
@@ -52,20 +57,39 @@ megamol::encoder::AbstractVideoEncoder::AbstractVideoEncoder(void)
         , outFilenameSlot("outFilenameSlot", "The path to the file that will contain the encoded frames")
         , outputMode("outputMode", "Select what happens with the encoded frames")
         , previousEncoderCodec(1)
+        , previousFlipFrames(false)
+        , previousFoveated(false)
         , previousInputMode(0)
+        , previousLatency(false)
+        , previousOffsetHeight(0)
+        , previousOffsetWidth(0)
         , previousOutFilename(".\\outfile.h265")
         , previousOutputMode(0)
+        , previousOverallHeight(0)
+        , previousOverallWidth(0)
         , previousQPValue(31)
+        , previousSIMD(true)
         , previousUseInfiniteGOP(false)
         , qpValue("qpValue", "The QP value used by the encoder in case foveated encoding is not used")
         , sseSupport(false)
+        , uniqueInputDataID(0)
+        , uniqueInputFoveatedDataID(0)
+        , uniqueOutputDataID(0)
         , useFoveated("useFoveated", "Turns on the foveated encdoing")
         , useSIMD("useSIMD", "Turns the usage of SIMD instructions on/off")
         , useInfiniteGOP("useInfiniteGOP", "Turns off periodic key frames and uses intra refresh")
         , width(0) {
     // Initialise the state of the encoder. The default is false (not recording).
     this->active << new megamol::core::param::BoolParam(false);
+    this->active.SetUpdateCallback(&AbstractVideoEncoder::activeCallback);
     this->MakeSlotAvailable(&this->active);
+
+    #ifdef WITH_NETWORK
+    // Initialise the call to send and receive data via MPI.
+    this->mpiIntraCall
+        .SetCompatibleCall<megamol::core::factories::CallAutoDescription<megamol::network::MpiIntraCall>>();
+    this->MakeSlotAvailable(&this->mpiIntraCall);
+    #endif
 
     // Initialise the codes of the encoder. The default is h265(HEVC).
     this->encoderCodec << new megamol::core::param::EnumParam(1);
@@ -75,9 +99,9 @@ megamol::encoder::AbstractVideoEncoder::AbstractVideoEncoder(void)
     this->MakeSlotAvailable(&this->encoderCodec);
 
     // Initialise the flipping of the frames before encoding. The default is false (no flipping).
-    this->flippFrames << new megamol::core::param::BoolParam(false);
-    this->flippFrames.SetUpdateCallback(&AbstractVideoEncoder::foveatedCallback);
-    this->MakeSlotAvailable(&this->flippFrames);
+    this->flipFrames << new megamol::core::param::BoolParam(false);
+    this->flipFrames.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
+    this->MakeSlotAvailable(&this->flipFrames);
 
     // Initialise the foveated interval. The default is [11,51].
     this->foveatedInterval << new megamol::core::param::StringParam("11,51");
@@ -86,22 +110,25 @@ megamol::encoder::AbstractVideoEncoder::AbstractVideoEncoder(void)
     // Initialise the input mode of the encoder. The default is Call.
     this->inputMode << new megamol::core::param::EnumParam(0);
     this->inputMode.Param<megamol::core::param::EnumParam>()->SetTypePair(0, "Call");
+    #ifdef WITH_NETWORK
     this->inputMode.Param<megamol::core::param::EnumParam>()->SetTypePair(1, "MPI");
+    #endif
+    this->inputMode.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->inputMode);
 
     // Initialise the state of the latency measurements. The default is false (no measurements).
     this->latencyMeasurement << new megamol::core::param::BoolParam(false);
-    this->latencyMeasurement.SetUpdateCallback(&AbstractVideoEncoder::latencyMeasurementCallback);
+    this->latencyMeasurement.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->latencyMeasurement);
 
     // Initialise the height offset of the node. The default is zero.
     this->offsetHeight << new megamol::core::param::IntParam(0, 0);
-    this->offsetHeight.SetUpdateCallback(&AbstractVideoEncoder::foveatedCallback);
+    this->offsetHeight.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->offsetHeight);
 
     // Initialise the width offset of the node. The default is zero.
     this->offsetWidth << new megamol::core::param::IntParam(0, 0);
-    this->offsetWidth.SetUpdateCallback(&AbstractVideoEncoder::foveatedCallback);
+    this->offsetWidth.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->offsetWidth);
 
     // Initialise the path to the file that will contain the encoded frames. The default is ".\\outfile.h265".
@@ -112,19 +139,21 @@ megamol::encoder::AbstractVideoEncoder::AbstractVideoEncoder(void)
     // Initialise the different output modes. The default is write to file.
     this->outputMode << new megamol::core::param::EnumParam(0);
     this->outputMode.Param<megamol::core::param::EnumParam>()->SetTypePair(0, "file");
+    #ifdef WITH_NETWORK
     this->outputMode.Param<megamol::core::param::EnumParam>()->SetTypePair(1, "MPI");
     this->outputMode.Param<megamol::core::param::EnumParam>()->SetTypePair(2, "network");
+    #endif
     this->outputMode.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->outputMode);
 
     // Initialise the overall height of the display. The default is zero.
     this->overallHeight << new megamol::core::param::IntParam(0, 0);
-    this->overallHeight.SetUpdateCallback(&AbstractVideoEncoder::foveatedCallback);
+    this->overallHeight.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->overallHeight);
 
     // Initialise the overall width of the display. The default is zero.
     this->overallWidth << new megamol::core::param::IntParam(0, 0);
-    this->overallWidth.SetUpdateCallback(&AbstractVideoEncoder::foveatedCallback);
+    this->overallWidth.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->overallWidth);
 
     // Initialise the QP value used by the encoder. The default is 31.
@@ -134,17 +163,67 @@ megamol::encoder::AbstractVideoEncoder::AbstractVideoEncoder(void)
 
     // Initialise the mode of the encoder. The default is to not use foveated encoding.
     this->useFoveated << new megamol::core::param::BoolParam(false);
+    this->useFoveated.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->useFoveated);
 
     // Initialise the usage of SIMD instructions. The default is true, i.e. use SIMD.
     this->useSIMD << new megamol::core::param::BoolParam(true);
-    this->useSIMD.SetUpdateCallback(&AbstractVideoEncoder::simdCallback);
+    this->useSIMD.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->useSIMD);
 
     // Initialise the usage of key frames. The default is to use key frames.
     this->useInfiniteGOP << new megamol::core::param::BoolParam(false);
     this->useInfiniteGOP.SetUpdateCallback(&AbstractVideoEncoder::unchangeableCallback);
     this->MakeSlotAvailable(&this->useInfiniteGOP);
+}
+
+
+/*
+ * megamol::encoder::AbstractVideoEncoder::activeCallback
+ */
+bool megamol::encoder::AbstractVideoEncoder::activeCallback(megamol::core::param::ParamSlot& slot) {
+    // Assert that the slot is the expected one.
+    ASSERT(&slot == &this->active);
+
+    // Get the value of the active state.
+    auto isActive = this->active.Param<megamol::core::param::BoolParam>()->Value();
+    if (isActive) {
+        // Check for SIMD instructions.
+        this->checkSIMDInstructions();
+
+        // Initialise the latency measurements.
+        this->initialiseBaseLatencyMeasurements();
+        this->initialiseSpecialLatencyMeasurements();
+
+        // Initialise the foveated encoding.
+        this->initialiseFoveated();
+
+        // Initialise the encoder.
+        this->initialiseEncoder();
+
+        // Initialise the MpiIntraCmmunicator.
+        this->initialiseMPI();
+
+        // Initialise the input.
+        this->initialiseInput();
+
+        // Initialise the ouput.
+        this->initialiseOutput();
+
+    } else {
+        // Stop the encoder.
+        this->stopEncoder();
+
+        // Stop the MpiIntraCmmunicator.
+        this->stopMPI();
+
+        // Stop the input.
+        this->stopInput();
+
+        // Stop the ouput.
+        this->stopOutput();
+    }
+    return true;
 }
 
 
@@ -231,42 +310,40 @@ void megamol::encoder::AbstractVideoEncoder::checkSIMDInstructions(void) {
     // for more details on how to do that.
     this->avxSupport = false;
     this->sseSupport = false;
+    if (this->useSIMD.Param<megamol::core::param::BoolParam>()->Value()) {
+        // Check AVX (256 bit) support.
+        {
+            std::array<int, 4> cpuInfo;
+            __cpuid(cpuInfo.data(), 1);
+            bool osUsesXSAVE_XRSTORE = cpuInfo[2] & (1 << 27) || false;
+            bool cpuAVXSuport = cpuInfo[2] & (1 << 28) || false;
+            if (osUsesXSAVE_XRSTORE && cpuAVXSuport) {
+                unsigned long long xcrFeatureMask = _xgetbv(_XCR_XFEATURE_ENABLED_MASK);
+                this->avxSupport = (xcrFeatureMask & 0x6) == 0x6;
+            }
 
-    // Check AVX (256 bit) support.
-    {
-        std::array<int, 4> cpuInfo;
-        __cpuid(cpuInfo.data(), 1);
-        bool osUsesXSAVE_XRSTORE = cpuInfo[2] & (1 << 27) || false;
-        bool cpuAVXSuport = cpuInfo[2] & (1 << 28) || false;
-        if (osUsesXSAVE_XRSTORE && cpuAVXSuport) {
-            unsigned long long xcrFeatureMask = _xgetbv(_XCR_XFEATURE_ENABLED_MASK);
-            this->avxSupport = (xcrFeatureMask & 0x6) == 0x6;
+            __cpuid(cpuInfo.data(), 7);
+            bool cpuAVX2Support = cpuInfo[1] & 0x00000020;
+            this->avxSupport &= cpuAVX2Support;
+            if (this->avxSupport) {
+                megamol::core::utility::log::Log::DefaultLog.WriteInfo("The machine supports AVX (256 bit).");
+            }
         }
 
-        __cpuid(cpuInfo.data(), 7);
-        bool cpuAVX2Support = cpuInfo[1] & 0x00000020;
-        this->avxSupport &= cpuAVX2Support;
-        if (this->avxSupport) {
-            megamol::core::utility::log::Log::DefaultLog.WriteMsg(
-                megamol::core::utility::log::Log::LEVEL_INFO, "The machine supports AVX (256 bit).", nullptr);
-        }
-    }
-
-    // Check SSE (128 bit) support.
-    {
-        std::array<int, 4> cpuInfo;
-        __cpuid(cpuInfo.data(), 1);
-		bool sse = (cpuInfo[3] & (1 << 25)) != 0;
-		bool sse2 = (cpuInfo[3] & (1 << 26)) != 0;
-		bool sse3 = (cpuInfo[2] & (1 << 0)) != 0;
-		bool ssse3 = (cpuInfo[2] & (1 << 9)) != 0;
-		bool sse41 = (cpuInfo[2] & (1 << 19)) != 0;
-		bool sse42 = (cpuInfo[2] & (1 << 20)) != 0;
-		this->sseSupport = cpuInfo[2] & (1 << 9) || cpuInfo[2] & (1 << 19) ||
-			cpuInfo[2] & (1 << 20) || false;
-        if (this->sseSupport) {
-            megamol::core::utility::log::Log::DefaultLog.WriteMsg(
-                megamol::core::utility::log::Log::LEVEL_INFO, "The machine supports SSE (128 bit).", nullptr);
+        // Check SSE (128 bit) support.
+        {
+            std::array<int, 4> cpuInfo;
+            __cpuid(cpuInfo.data(), 1);
+            bool sse = (cpuInfo[3] & (1 << 25)) != 0;
+            bool sse2 = (cpuInfo[3] & (1 << 26)) != 0;
+            bool sse3 = (cpuInfo[2] & (1 << 0)) != 0;
+            bool ssse3 = (cpuInfo[2] & (1 << 9)) != 0;
+            bool sse41 = (cpuInfo[2] & (1 << 19)) != 0;
+            bool sse42 = (cpuInfo[2] & (1 << 20)) != 0;
+            this->sseSupport = cpuInfo[2] & (1 << 9) || cpuInfo[2] & (1 << 19) || cpuInfo[2] & (1 << 20) || false;
+            if (this->sseSupport) {
+                megamol::core::utility::log::Log::DefaultLog.WriteInfo("The machine supports SSE (128 bit).");
+            }
         }
     }
 }
@@ -308,7 +385,7 @@ void megamol::encoder::AbstractVideoEncoder::computeMacroblockCnt(void) {
  */
 void megamol::encoder::AbstractVideoEncoder::computeMacroblockRects(const float offsetHeight, const float offsetWidth) {
     // Check if the frames are flipped.
-    if (this->flippFrames.Param<megamol::core::param::BoolParam>()->Value()) {
+    if (this->flipFrames.Param<megamol::core::param::BoolParam>()->Value()) {
         // Compute the corners of the macroblocks from top to bottom.
         this->macroblockCorners.resize(this->macroblockCnt);
         this->macroblockCentres.resize(this->macroblockCnt);
@@ -375,40 +452,21 @@ void megamol::encoder::AbstractVideoEncoder::computeRect(
  * megamol::encoder::AbstractVideoEncoder::create
  */
 bool megamol::encoder::AbstractVideoEncoder::create(void) {
-    // Check for SIMD instructions.
-    if (this->useSIMD.Param<megamol::core::param::BoolParam>()->Value()) {
-        this->checkSIMDInstructions();
-    }
-
-    // Check if latency measurement is turned on.
-    if (this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->Value()) {
-        this->initialiseBaseLatencyMeasurements();
-    }
-
     // Remember the values of potentially unchangeable slots.
     this->previousEncoderCodec = this->encoderCodec.Param<megamol::core::param::EnumParam>()->Value();
+    this->previousFlipFrames = this->flipFrames.Param<megamol::core::param::BoolParam>()->Value();
+    this->previousFoveated = this->useFoveated.Param<megamol::core::param::BoolParam>()->Value();
     this->previousInputMode = this->inputMode.Param<megamol::core::param::EnumParam>()->Value();
+    this->previousLatency = this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->Value();
+    this->previousOffsetHeight = this->offsetHeight.Param<megamol::core::param::IntParam>()->Value();
+    this->previousOffsetWidth = this->offsetWidth.Param<megamol::core::param::IntParam>()->Value();
     this->previousOutFilename = this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString();
     this->previousOutputMode = this->outputMode.Param<megamol::core::param::EnumParam>()->Value();
+    this->previousOverallHeight = this->overallHeight.Param<megamol::core::param::IntParam>()->Value();
+    this->previousOverallWidth = this->overallWidth.Param<megamol::core::param::IntParam>()->Value();
     this->previousQPValue = this->qpValue.Param<megamol::core::param::IntParam>()->Value();
+    this->previousSIMD = this->useSIMD.Param<megamol::core::param::BoolParam>()->Value();
     this->previousUseInfiniteGOP = this->useInfiniteGOP.Param<megamol::core::param::BoolParam>()->Value();
-    return true;
-}
-
-
-/*
- * megamol::encoder::AbstractVideoEncoder::foveatedCallback
- */
-bool megamol::encoder::AbstractVideoEncoder::foveatedCallback(megamol::core::param::ParamSlot& slot) {
-    // Assert that the slot is one of the expected ones. flippFrames, offsetHeight, offsetWidth,
-    // overallHeight or overallWidth
-    ASSERT(&slot == &this->flippFrames || &slot == &this->offsetHeight || &slot == &this->offsetWidth ||
-           &slot == &this->overallHeight || &slot == &this->overallWidth);
-
-    // Check if the user wants to use foveation.
-    if (this->useFoveated.Param<megamol::core::param::BoolParam>()->Value()) {
-        this->initialiseFoveated();
-    }
     return true;
 }
 
@@ -446,14 +504,17 @@ bool megamol::encoder::AbstractVideoEncoder::GetExtents(megamol::core::view::Cal
  * megamol::encoder::AbstractVideoEncoder::initialiseBaseLatencyMeasurements
  */
 void megamol::encoder::AbstractVideoEncoder::initialiseBaseLatencyMeasurements(void) {
-    // Check if the frame should be flipped.
-    if (this->flippFrames.Param<megamol::core::param::BoolParam>()->Value()) {
-        // Add measurements for the flipping of the image.
-        this->latencyMeasurementFlippingFrame.Initialise(2000, ".\\FlippingFrame.csv");
-    }
+    // Check if latency measurements are turned on.
+    if (this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->Value()) {
+        // Check if the frame should be flipped.
+        if (this->flipFrames.Param<megamol::core::param::BoolParam>()->Value()) {
+            // Add measurements for the flipping of the image.
+            this->latencyMeasurementFlippingFrame.Initialise(2000, ".\\FlipingFrame.csv");
+        }
 
-    // Add measurements for the processing of the output.
-    this->latencyMeasurementOverall.Initialise(2000, ".\\CompleteProcess.csv");
+        // Add measurements for the processing of the output.
+        this->latencyMeasurementOverall.Initialise(2000, ".\\CompleteProcess.csv");
+    }
 }
 
 
@@ -461,26 +522,213 @@ void megamol::encoder::AbstractVideoEncoder::initialiseBaseLatencyMeasurements(v
  * megamol::encoder::AbstractVideoEncoder::initialiseFoveated
  */
 void megamol::encoder::AbstractVideoEncoder::initialiseFoveated(void) {
-    // Compute the number of macroblocks of the image.
-    this->computeMacroblockCnt();
+    // Check if the user wants to use foveation.
+    if (this->useFoveated.Param<megamol::core::param::BoolParam>()->Value()) {
+        // Compute the number of macroblocks of the image.
+        this->computeMacroblockCnt();
 
-    // Compute the macroblock corners and centres.
-    float heightOffset = static_cast<float>(this->offsetHeight.Param<megamol::core::param::IntParam>()->Value());
-    float widthOffset = static_cast<float>(this->offsetWidth.Param<megamol::core::param::IntParam>()->Value());
-    this->computeMacroblockRects(heightOffset, widthOffset);
+        // Compute the macroblock corners and centres.
+        float heightOffset = static_cast<float>(this->offsetHeight.Param<megamol::core::param::IntParam>()->Value());
+        float widthOffset = static_cast<float>(this->offsetWidth.Param<megamol::core::param::IntParam>()->Value());
+        this->computeMacroblockRects(heightOffset, widthOffset);
 
-    // Initialise the macroblock quality mapping.
-    this->initialiseQualityMapping();
+        // Initialise the macroblock quality mapping.
+        this->initialiseQualityMapping();
 
-    // Remeber the dimensions of the overall display.
-    this->overallHeightF = static_cast<float>(this->overallHeight.Param<megamol::core::param::IntParam>()->Value());
-    this->overallWidthF = static_cast<float>(this->overallWidth.Param<megamol::core::param::IntParam>()->Value());
+        // Remeber the dimensions of the overall display.
+        this->overallHeightF = static_cast<float>(this->overallHeight.Param<megamol::core::param::IntParam>()->Value());
+        this->overallWidthF = static_cast<float>(this->overallWidth.Param<megamol::core::param::IntParam>()->Value());
 
-    // Check if the values are zero, in that case use the width and height of the local display.
-    if (this->overallHeight.Param<megamol::core::param::IntParam>()->Value() == 0 &&
-        this->overallWidth.Param<megamol::core::param::IntParam>()->Value() == 0) {
-        this->overallHeightF = static_cast<float>(this->height);
-        this->overallWidthF = static_cast<float>(this->width);
+        // Check if the values are zero, in that case use the width and height of the local display.
+        if (this->overallHeight.Param<megamol::core::param::IntParam>()->Value() == 0 &&
+            this->overallWidth.Param<megamol::core::param::IntParam>()->Value() == 0) {
+            this->overallHeightF = static_cast<float>(this->height);
+            this->overallWidthF = static_cast<float>(this->width);
+        }
+    }
+}
+
+
+/*
+ * megamol::encoder::AbstractVideoEncoder::initialiseInput
+ */
+void megamol::encoder::AbstractVideoEncoder::initialiseInput(void) {
+    // Check if the input is MPI.
+    if (this->inputMode.Param<megamol::core::param::EnumParam>()->Value() == 1) {
+        this->initialiseMPIInput();
+    }
+}
+
+
+/*
+ * megamol::encoder::AbstractVideoEncoder::initialiseMPI
+ */
+void megamol::encoder::AbstractVideoEncoder::initialiseMPI(void) {
+    #ifdef WITH_NETWORK
+    // Check if the input is MPI.
+    bool mpiInput = false;
+    bool mpiFoveatedInput = false;
+    if (this->inputMode.Param<megamol::core::param::EnumParam>()->Value() == 1) {
+        // The node uses MPI in order get input.
+        mpiInput = true;
+
+        // Compute the unique data ID of the input.
+        auto x = this->offsetWidth.Param<megamol::core::param::IntParam>()->Value();
+        auto y = this->offsetHeight.Param<megamol::core::param::IntParam>()->Value();
+        this->uniqueInputDataID = megamol::network::MpiIntraCall::ComputeUniqueID(
+            static_cast<int>(megamol::network::IntraDataType::BITSTREAM),
+            megamol::network::MpiIntraCall::ComputeUniqueID(x, y));
+
+        // Check if foveated encoding is used.
+        if (this->useFoveated.Param<megamol::core::param::BoolParam>()->Value()) {
+            // The node uses MPI in order get foveated regions.
+            mpiFoveatedInput = true;
+
+            // Compute the unique data ID of the input.
+            this->uniqueInputFoveatedDataID = megamol::network::MpiIntraCall::ComputeUniqueID(
+                static_cast<int>(megamol::network::IntraDataType::FOVEATEDREGION),
+                megamol::network::MpiIntraCall::ComputeUniqueID(x, y));
+        }
+    }
+
+    // Check if the output is MPI.
+    bool mpiOutput = false;
+    if (this->outputMode.Param<megamol::core::param::EnumParam>()->Value() == 1) {
+        // The node uses MPI in order to deal with the output.
+        mpiOutput = true;
+
+        // Compute the unique data ID of the output.
+        auto x = this->offsetWidth.Param<megamol::core::param::IntParam>()->Value();
+        auto y = this->offsetHeight.Param<megamol::core::param::IntParam>()->Value();
+        this->uniqueOutputDataID = megamol::network::MpiIntraCall::ComputeUniqueID(
+            static_cast<int>(megamol::network::IntraDataType::BITSTREAMENC),
+            megamol::network::MpiIntraCall::ComputeUniqueID(x, y));
+    }
+
+    // Determine the role(s) of the node.
+    std::underlying_type<megamol::network::Role>::type myRoles =
+        static_cast<std::underlying_type<megamol::network::Role>::type>(megamol::network::Role::NONE);
+    if (mpiInput) {
+        myRoles |=
+            static_cast<std::underlying_type<megamol::network::Role>::type>(megamol::network::Role::DATA_RECEIVER);
+    }
+    if (mpiOutput) {
+        myRoles |=
+            static_cast<std::underlying_type<megamol::network::Role>::type>(megamol::network::Role::DATA_PROVIDER);
+    }
+
+    // Use the callSendMPIData slot to initialise the MpiIntraCommunicator
+    megamol::network::MpiIntraCall* call = this->mpiIntraCall.CallAs<megamol::network::MpiIntraCall>();
+    if (call != nullptr) {
+        // Initialise the MpiIntraCommunicator.
+        call->SetRoles(static_cast<megamol::network::Role>(myRoles));
+        if (!(*call)(megamol::network::MpiIntraCall::IDX_INIT_COMM)) {
+            return;
+        }
+
+        // Set the provided data, i.e. the encoded bitstream.
+        if (mpiOutput) {
+            call->SetDataType(megamol::network::IntraDataType::BITSTREAMENC);
+            call->SetDataID(this->uniqueOutputDataID);
+            (*call)(megamol::network::MpiIntraCall::IDX_ADD_PROVIDED_DATA);
+        }
+
+        // Set the expected data, i.e. the raw bitstream and the foveated regions.
+        if (mpiInput) {
+            call->SetDataType(megamol::network::IntraDataType::BITSTREAM);
+            call->SetDataID(this->uniqueInputDataID);
+            (*call)(megamol::network::MpiIntraCall::IDX_ADD_EXPECTED_DATA);
+        }
+        if (mpiFoveatedInput) {
+            call->SetDataType(megamol::network::IntraDataType::FOVEATEDREGION);
+            call->SetDataID(this->uniqueInputFoveatedDataID);
+            (*call)(megamol::network::MpiIntraCall::IDX_ADD_EXPECTED_DATA);
+        }
+
+        // Start the MpiIntraCommunicator.
+        (*call)(megamol::network::MpiIntraCall::IDX_START_COMM);
+
+    } else {
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
+            "Failed to initialise the MpiIntraCommunicator as the call is a nullptr.");
+    }
+    #else
+    megamol::core::utility::log::Log::DefaultLog.WriteWarn(
+        "Cannot initialise MpiIntraCommunicator as the Network plugin is not installed.");
+    #endif
+}
+
+
+/*
+ * megamol::encoder::AbstractVideoEncoder::initialiseMPIInput
+ */
+void megamol::encoder::AbstractVideoEncoder::initialiseMPIInput(void) {
+    #ifdef WITH_NETWORK
+    // Start the MPI input threads.
+    this->mpiInputThreadRunning.store(true);
+    try {
+        // Start the raw bitstream input thread.
+        this->mpiInputBitThread = std::thread(
+            std::bind(&AbstractVideoEncoder::mpiInput, std::ref(*this), megamol::network::IntraDataType::BITSTREAM));
+
+        // Check if foveated encoding is used.
+        if (this->useFoveated.Param<megamol::core::param::BoolParam>()->Value()) {
+            // Start the foveated region input thread.
+            this->mpiInputFovThread = std::thread(std::bind(
+                &AbstractVideoEncoder::mpiInput, std::ref(*this), megamol::network::IntraDataType::FOVEATEDREGION));
+        }
+
+    } catch (std::exception& ex) {
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
+            "Failed to start the MPI input threads with error \"%s\".", ex.what());
+    }
+    #else
+    megamol::core::utility::log::Log::DefaultLog.WriteWarn(
+        "Cannot initialise MPI based input as the Network plugin is not installed.");
+    #endif
+}
+
+
+/*
+ * megamol::encoder::AbstractVideoEncoder::initialiseOutput
+ */
+void megamol::encoder::AbstractVideoEncoder::initialiseOutput(void) {
+    // Check what outout method should be used.
+    switch (this->outputMode.Param<megamol::core::param::EnumParam>()->Value()) {
+        case 2:
+            // TODO...
+            break;
+
+        case 1:
+            // Nothing to do here.
+            break;
+
+        case 0:
+        default:
+            // Check if the file needs to be closed.
+            if (this->outFile != nullptr) {
+                // Close the file.
+                ::fclose(this->outFile);
+                this->outFile = nullptr;
+
+                // Check if the file is empty and can be deleted.
+                if (this->deleteOutfile) {
+                    // Delete file and ignore return value...
+                    std::remove(this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString());
+                }
+            }
+
+            // Open the file in case it was not opend so far.
+            if (this->outFile == nullptr) {
+                auto isOpen = ::fopen_s(&this->outFile,
+                    this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString(), "wb");
+                if (isOpen != 0) {
+                    megamol::core::utility::log::Log::DefaultLog.WriteError("Failed to create file %s with error %d",
+                        this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString(), isOpen);
+                }
+                this->deleteOutfile = true;
+            }
+            break;
     }
 }
 
@@ -495,14 +743,6 @@ void megamol::encoder::AbstractVideoEncoder::initialiseQualityMapping(void) {
     }
     this->macroblockQualityReadIdx.store(0);
     this->macroblockQualityWriteIdx.store(1);
-}
-
-
-/*
- * megamol::encoder::AbstractVideoEncoder::initMPI
- */
-bool megamol::encoder::AbstractVideoEncoder::initMPI() {
-    return false;
 }
 
 
@@ -575,21 +815,38 @@ bool megamol::encoder::AbstractVideoEncoder::intersection(
 }
 
 
+#ifdef WITH_NETWORK
 /*
- * megamol::encoder::AbstractVideoEncoder::latencyMeasurementCallback
+ * megamol::encoder::AbstractVideoEncoder::mpiInput
  */
-bool megamol::encoder::AbstractVideoEncoder::latencyMeasurementCallback(megamol::core::param::ParamSlot& slot) {
-    // Assert that the slot is the expected one.
-    ASSERT(&slot == &this->latencyMeasurement);
+void megamol::encoder::AbstractVideoEncoder::mpiInput(const megamol::network::IntraDataType dataType) {
+    // Check for new received data from the MpiIntraCommunicator.
+    while (this->mpiInputThreadRunning.load()) {
+        // Check if the call to the MpiIntraCommunicator is active.
+        auto isActive = this->active.Param<megamol::core::param::BoolParam>()->Value();
+        megamol::network::MpiIntraCall* call = this->mpiIntraCall.CallAs<megamol::network::MpiIntraCall>();
+        if (call != nullptr && isActive) {
+            // Get the raw data or the foveated regions.
+            call->SetDataType(dataType);
+            if ((*call)(megamol::network::MpiIntraCall::IDX_DELIVER_DATA)) {
+                // New data available, call the onInputMPI function.
+                this->onInputMPI(call->GetDeliverData(), call->GetDeliverDataCnt(), dataType);
 
-    // Initialise the latency measurements if necessary.
-    if (this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->Value()) {
-        // Create the new instances.
-        this->initialiseBaseLatencyMeasurements();
-        this->initialiseSpecialLatencyMeasurements();
+            } else {
+                // An error occured while delivering the data. Aborting...
+                megamol::core::utility::log::Log::DefaultLog.WriteError(
+                    "An error occured while delivering the data. Aborting...");
+                break;
+            }
+
+        } else {
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Failed to get the received data from the MpiIntraCommunicator as the call is a nullptr. Aborting...");
+            break;
+        }
     }
-    return true;
 }
+#endif
 
 
 /*
@@ -640,29 +897,38 @@ void megamol::encoder::AbstractVideoEncoder::processOutput(
             break;
 
         case 1:
-            // TODO...
+            #ifdef WITH_NETWORK
+            // Use the callSendMPIData slot to send data via MPI.
+            {
+                megamol::network::MpiIntraCall* call = this->mpiIntraCall.CallAs<megamol::network::MpiIntraCall>();
+                if (call != nullptr) {
+                    // Set the data.
+                    call->SetData(data);
+                    call->SetDataCnt(dataCnt);
+                    call->SetDataID(this->uniqueOutputDataID);
+                    call->SetHeight(this->height);
+                    call->SetTimestamp(static_cast<int64_t>(timestamp));
+                    call->SetWidth(this->width);
+
+                    // Call the send data function.
+                    (*call)(megamol::network::MpiIntraCall::IDX_SEND_DATA);
+                }
+            }
+            #else
+            megamol::core::utility::log::Log::DefaultLog.WriteWarn(
+                "Cannot process MPI based output as the Network plugin is not installed.");
+            #endif
             break;
 
         case 0:
         default:
-            // Open the file in case it was not opend so far.
-            if (this->outFile == nullptr) {
-                auto isOpen = ::fopen_s(&this->outFile,
-                    this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString(), "wb");
-                if (isOpen != 0) {
-                    megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
-                        "Failed to create file %s with error %d",
-                        this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString(), isOpen);
-                }
-                this->deleteOutfile = true;
-            }
-
             // Write the frame into the file.
             if (this->outFile != nullptr) {
                 auto written = ::fwrite(data, dataElementSize, dataCnt, this->outFile);
                 if (written != dataCnt) {
-                    megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
-                        "Failed to save frame with timestamp %lld with error %d", timestamp, written);
+                    megamol::core::utility::log::Log::DefaultLog.WriteError(
+                        "Failed to save frame (%zu bytes) with timestamp %lld with error %d", dataCnt, timestamp,
+                        written);
                 }
                 this->deleteOutfile = false;
             }
@@ -675,17 +941,11 @@ void megamol::encoder::AbstractVideoEncoder::processOutput(
  * megamol::encoder::AbstractVideoEncoder::release
  */
 void megamol::encoder::AbstractVideoEncoder::release(void) {
-    // Check if the file needs to be closed.
-    if (this->outFile != nullptr) {
-        // Close the file.
-        ::fclose(this->outFile);
+    // Stop the input.
+    this->stopInput();
 
-        // Check if the file is empty and can be deleted.
-        if (this->deleteOutfile) {
-            // Delete file and ignore return value...
-            std::remove(this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString());
-        }
-    }
+    // Stop the output.
+    this->stopOutput();
 }
 
 
@@ -737,72 +997,85 @@ megamol::encoder::ScaledFovRect megamol::encoder::AbstractVideoEncoder::scaleRec
 
 
 /*
- * megamol::encoder::AbstractVideoEncoder::simdCallback
+ * megamol::encoder::AbstractVideoEncoder::stopEncoder
  */
-bool megamol::encoder::AbstractVideoEncoder::simdCallback(megamol::core::param::ParamSlot& slot) {
-    // Assert that the slot is the expected one.
-    ASSERT(&slot == &this->useSIMD);
-
-    // Check for SIMD instructions.
-    if (this->useSIMD.Param<megamol::core::param::BoolParam>()->Value()) {
-        this->checkSIMDInstructions();
-    }
-    return true;
+void megamol::encoder::AbstractVideoEncoder::stopEncoder(void) {
 }
 
 
 /*
- * megamol::encoder::AbstractVideoEncoder::unchangeableCallback
+ * megamol::encoder::AbstractVideoEncoder::stopInput
  */
-bool megamol::encoder::AbstractVideoEncoder::unchangeableCallback(megamol::core::param::ParamSlot& slot) {
-    // Check which slot triggered the callback.
-    if (&slot == &this->encoderCodec) {
-        // Check if the encoder is active.
-        if (this->active.Param<megamol::core::param::BoolParam>()->Value()) {
-            // Log the warning and restore the previous encoder codec.
-            megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
-                "Unable to change the encoder codec while the encoder is running.", nullptr);
-            this->encoderCodec.Param<megamol::core::param::EnumParam>()->SetValue(this->previousEncoderCodec, false);
+void megamol::encoder::AbstractVideoEncoder::stopInput(void) {
+    // Check if the input was MPI.
+    if (this->inputMode.Param<megamol::core::param::EnumParam>()->Value() == 1) {
+        this->stopMPIInput();
+    }
+}
 
-        } else {
-            // Remeber the new encoder codec.
-            this->previousEncoderCodec = this->encoderCodec.Param<megamol::core::param::EnumParam>()->Value();
 
-            // Initialise the encoder again.
-            this->initialiseEncoder();
-        }
+/*
+ * megamol::encoder::AbstractVideoEncoder::stopInput
+ */
+void megamol::encoder::AbstractVideoEncoder::stopMPI(void) {
+    #ifdef WITH_NETWORK
+    // Use the callSendMPIData slot to stop the MpiIntraCommunicator
+    megamol::network::MpiIntraCall* call = this->mpiIntraCall.CallAs<megamol::network::MpiIntraCall>();
+    if (call != nullptr) {
+        // Stop the MpiIntraCommunicator.
+        (*call)(megamol::network::MpiIntraCall::IDX_STOP_COMM);
+    }
+    #else
+    megamol::core::utility::log::Log::DefaultLog.WriteWarn(
+        "Cannot stop MpiIntraCommunicator as the Network plugin is not installed.");
+    #endif
+}
 
-    } else if (&slot == &this->outFilenameSlot) {
-        // Check if there is already an open file.
-        if (this->outFile != nullptr) {
-            // Log the warning and restore the previous filename.
-            megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
-                "Unable to change the filename while already writing to a different file.", nullptr);
-            this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->SetValue(
-                this->previousOutFilename, false);
 
-        } else {
-            // Remeber the new output filename.
-            this->previousOutFilename =
-                this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString();
-        }
+/*
+ * megamol::encoder::AbstractVideoEncoder::stopMPIInput
+ */
+void megamol::encoder::AbstractVideoEncoder::stopMPIInput(void) {
+    #ifdef WITH_NETWORK
+    // Stop the raw bitstream thread.
+    this->mpiInputThreadRunning.store(false);
+    if (this->mpiInputBitThread.joinable()) {
+        this->mpiInputBitThread.join();
+    }
 
-    } else if (&slot == &this->outputMode) {
-        // Check if the encoder is active.
-        if (this->active.Param<megamol::core::param::BoolParam>()->Value()) {
-            // Log the warning and restore the previous output mode.
-            megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
-                "Unable to change the output mode while the encoder is running.", nullptr);
-            this->outputMode.Param<megamol::core::param::EnumParam>()->SetValue(this->previousOutputMode, false);
+    // Stop the foveated region thread.
+    this->mpiInputThreadRunning.store(false);
+    if (this->mpiInputFovThread.joinable()) {
+        this->mpiInputFovThread.join();
+    }
+    #else
+    megamol::core::utility::log::Log::DefaultLog.WriteWarn(
+        "Cannot stop MPI based input as the Network plugin is not installed.");
+    #endif
+}
 
-        } else {
-            // Remeber the new output mode.
-            this->previousOutputMode = this->outputMode.Param<megamol::core::param::EnumParam>()->Value();
 
+/*
+ * megamol::encoder::AbstractVideoEncoder::stopOutput
+ */
+void megamol::encoder::AbstractVideoEncoder::stopOutput(void) {
+    // Check what outout method was used.
+    switch (this->outputMode.Param<megamol::core::param::EnumParam>()->Value()) {
+        case 2:
+            // TODO...
+            break;
+
+        case 1:
+            // Nothing to do here.
+            break;
+
+        case 0:
+        default:
             // Check if the file needs to be closed.
             if (this->outFile != nullptr) {
                 // Close the file.
                 ::fclose(this->outFile);
+                this->outFile = nullptr;
 
                 // Check if the file is empty and can be deleted.
                 if (this->deleteOutfile) {
@@ -810,38 +1083,173 @@ bool megamol::encoder::AbstractVideoEncoder::unchangeableCallback(megamol::core:
                     std::remove(this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString());
                 }
             }
-        }
+            break;
+    }
+}
 
-    } else if (&slot == &this->qpValue) {
-        // Check if the encoder is active.
-        if (this->active.Param<megamol::core::param::BoolParam>()->Value()) {
+
+/*
+ * megamol::encoder::AbstractVideoEncoder::unchangeableCallback
+ */
+bool megamol::encoder::AbstractVideoEncoder::unchangeableCallback(megamol::core::param::ParamSlot& slot) {
+    // Check if the encoder is active.
+    if (this->active.Param<megamol::core::param::BoolParam>()->Value()) {
+        // Check which slot triggered the callback.
+        if (&slot == &this->encoderCodec) {
+            // Log the warning and restore the previous encoder codec.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the encoder codec while the encoder is running.");
+            this->encoderCodec.Param<megamol::core::param::EnumParam>()->SetValue(this->previousEncoderCodec, false);
+
+        } else if (&slot == &this->flipFrames) {
+            // Log the warning and restore the previous flip frames state.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the flip frames state while the encoder is running.");
+            this->flipFrames.Param<megamol::core::param::BoolParam>()->SetValue(this->previousFlipFrames, false);
+
+        } else if (&slot == &this->useFoveated) {
+            // Log the warning and restore the previous foveated encoding state.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the foveated encoding while the encoder is running.");
+            this->useFoveated.Param<megamol::core::param::BoolParam>()->SetValue(this->previousFoveated, false);
+
+        } else if (&slot == &this->inputMode) {
+            // Log the warning and restore the input mode.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the input mode while the encoder is running.");
+            this->inputMode.Param<megamol::core::param::EnumParam>()->SetValue(this->previousInputMode, false);
+
+        } else if (&slot == &this->latencyMeasurement) {
+            // Log the warning and restore the previous foveated encoding state.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the latency measurement while the encoder is running.");
+            this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->SetValue(this->previousLatency, false);
+
+        } else if (&slot == &this->offsetHeight) {
+            // Log the warning and restore the previous height offset.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the height offset while the encoder is running.");
+            this->offsetHeight.Param<megamol::core::param::IntParam>()->SetValue(this->previousOffsetHeight, false);
+
+        } else if (&slot == &this->offsetWidth) {
+            // Log the warning and restore the previous width offset.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the width offset while the encoder is running.");
+            this->offsetWidth.Param<megamol::core::param::IntParam>()->SetValue(this->previousOffsetWidth, false);
+
+        } else if (&slot == &this->outFilenameSlot) {
+            // Log the warning and restore the previous filename.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the filename while already writing to a different file.");
+            this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->SetValue(
+                this->previousOutFilename, false);
+
+        } else if (&slot == &this->outputMode) {
+            // Log the warning and restore the previous output mode.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the output mode while the encoder is running.");
+            this->outputMode.Param<megamol::core::param::EnumParam>()->SetValue(this->previousOutputMode, false);
+
+        } else if (&slot == &this->overallHeight) {
+            // Log the warning and restore the previous overall height.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the overall height while the encoder is running.");
+            this->overallHeight.Param<megamol::core::param::IntParam>()->SetValue(this->previousOverallHeight, false);
+
+        } else if (&slot == &this->overallWidth) {
+            // Log the warning and restore the previous overall width.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the overall width while the encoder is running.");
+            this->overallWidth.Param<megamol::core::param::IntParam>()->SetValue(this->previousOverallWidth, false);
+
+        } else if (&slot == &this->qpValue) {
             // Log the warning and restore the previous QP value.
-            megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
-                "Unable to change the QP value while the encoder is running.", nullptr);
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the QP value while the encoder is running.");
             this->qpValue.Param<megamol::core::param::IntParam>()->SetValue(this->previousQPValue, false);
 
-        } else {
-            // Remeber the new QP value.
-            this->previousQPValue = this->qpValue.Param<megamol::core::param::IntParam>()->Value();
+        } else if (&slot == &this->useSIMD) {
+            // Log the warning and restore the previous SIMD state.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the usage of SIMD instructions while the encoder is running.");
+            this->useSIMD.Param<megamol::core::param::BoolParam>()->SetValue(this->previousSIMD, false);
 
-            // Initialise the encoder again.
-            this->initialiseEncoder();
+        } else if (&slot == &this->useInfiniteGOP) {
+            // Log the warning and restore the previous GOP state.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "Unable to change the GOP length while the encoder is running.");
+            this->useInfiniteGOP.Param<megamol::core::param::BoolParam>()->SetValue(
+                this->previousUseInfiniteGOP, false);
+
+        } else {
+            // Called by an unexpected slot.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "The unchangeableCallback was called by an unexpected slot 0x%p.", &slot);
         }
 
-    } else if (&slot == &this->useInfiniteGOP) {
-        // Check if the encoder is active.
-        if (this->active.Param<megamol::core::param::BoolParam>()->Value()) {
-            // Log the warning and restore the previous output mode.
-            megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
-                "Unable to change the GOP length while the encoder is running.", nullptr);
-            this->useInfiniteGOP.Param<megamol::core::param::BoolParam>()->SetValue(this->previousUseInfiniteGOP, false);
+    } else {
+        // Check which slot triggered the callback.
+        if (&slot == &this->encoderCodec) {
+            // Remeber the new value.
+            this->previousEncoderCodec = this->encoderCodec.Param<megamol::core::param::EnumParam>()->Value();
 
-        } else {
-            // Remeber the new output mode.
+        } else if (&slot == &this->flipFrames) {
+            // Remeber the new value.
+            this->previousFlipFrames = this->flipFrames.Param<megamol::core::param::BoolParam>()->Value();
+
+        } else if (&slot == &this->useFoveated) {
+            // Remeber the new value.
+            this->previousFoveated = this->useFoveated.Param<megamol::core::param::BoolParam>()->Value();
+
+        } else if (&slot == &this->inputMode) {
+            // Remeber the new value.
+            this->previousInputMode = this->inputMode.Param<megamol::core::param::EnumParam>()->Value();
+
+        } else if (&slot == &this->latencyMeasurement) {
+            // Remeber the new value.
+            this->previousLatency = this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->Value();
+
+        } else if (&slot == &this->offsetHeight) {
+            // Remeber the new value.
+            this->previousOffsetHeight = this->offsetHeight.Param<megamol::core::param::IntParam>()->Value();
+
+        } else if (&slot == &this->offsetWidth) {
+            // Remeber the new value.
+            this->previousOffsetWidth = this->offsetWidth.Param<megamol::core::param::IntParam>()->Value();
+
+        } else if (&slot == &this->outFilenameSlot) {
+            // Remeber the new value.
+            this->previousOutFilename =
+                this->outFilenameSlot.Param<megamol::core::param::FilePathParam>()->ValueString();
+
+        } else if (&slot == &this->outputMode) {
+            // Remeber the new value.
+            this->previousOutputMode = this->outputMode.Param<megamol::core::param::EnumParam>()->Value();
+
+        } else if (&slot == &this->overallHeight) {
+            // Remeber the new value.
+            this->previousOverallHeight = this->overallHeight.Param<megamol::core::param::IntParam>()->Value();
+
+        } else if (&slot == &this->overallWidth) {
+            // Remeber the new value.
+            this->previousOverallWidth = this->overallWidth.Param<megamol::core::param::IntParam>()->Value();
+
+        } else if (&slot == &this->qpValue) {
+            // Remeber the new value.
+            this->previousQPValue = this->qpValue.Param<megamol::core::param::IntParam>()->Value();
+
+        } else if (&slot == &this->useSIMD) {
+            // Remeber the new value.
+            this->previousSIMD = this->useSIMD.Param<megamol::core::param::BoolParam>()->Value();
+
+        } else if (&slot == &this->useInfiniteGOP) {
+            // Remeber the new value.
             this->previousUseInfiniteGOP = this->useInfiniteGOP.Param<megamol::core::param::BoolParam>()->Value();
 
-            // Initialise the encoder again.
-            this->initialiseEncoder();
+        } else {
+            // Called by an unexpected slot.
+            megamol::core::utility::log::Log::DefaultLog.WriteError(
+                "The unchangeableCallback was called by an unexpected slot 0x%p.", &slot);
         }
     }
     return true;

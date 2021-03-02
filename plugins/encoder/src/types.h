@@ -12,7 +12,11 @@
 #pragma once
 #endif /* (defined(_MSC_VER) && (_MSC_VER > 1000)) */
 
+#include "mmcore/utility/log/Log.h"
+
 #include "vislib/StringTokeniser.h"
+
+#include <array>
 
 namespace megamol {
 namespace encoder {
@@ -69,19 +73,13 @@ namespace encoder {
             this->Medium = this->Low + (this->Low - this->High) / 2;
         }
 
-        /**
-         * The high QP value for the interval, must be between 1 and 51.
-         */
+        /** The high QP value for the interval, must be between 1 and 51. */
         uint32_t High;
 
-        /**
-         * The low QP value for the interval, must be between 1 and 51.
-         */
+        /** The low QP value for the interval, must be between 1 and 51. */
         uint32_t Low;
 
-        /**
-         * The medium QP value for the interval, must be between 1 and 51.
-         */
+        /** The medium QP value for the interval, must be between 1 and 51. */
         uint32_t Medium;
     };
 
@@ -89,14 +87,10 @@ namespace encoder {
      * Struct that is used by the AbstractVideoEncoder to define a point.
      */
     struct PointF {
-        /**
-         * The x coordinate of the point.
-         */
+        /** The x coordinate of the point. */
         float x;
 
-        /**
-         * The y coordinate of the point.
-         */
+        /** The y coordinate of the point. */
         float y;
     };
 
@@ -104,24 +98,16 @@ namespace encoder {
      * The definition of the Fov tracking rectangle in screen boundaries [0,1].
      */
     struct FovRect {
-        /**
-         * The left top corner of the Fov rectangle.
-         */
+        /** The left top corner of the Fov rectangle. */
         PointF leftTop;
 
-        /**
-         * The left bottom corner of the Fov rectangle.
-         */
+        /** The left bottom corner of the Fov rectangle. */
         PointF leftBottom;
 
-        /**
-         * The right top corner of the Fov rectangle.
-         */
+        /** The right top corner of the Fov rectangle. */
         PointF rightTop;
 
-        /**
-         * The right bottom corner of the Fov rectangle.
-         */
+        /** The right bottom corner of the Fov rectangle. */
         PointF rightBottom;
     };
 
@@ -134,9 +120,7 @@ namespace encoder {
          */
         ScaledFovRect(void) : corners() { }
 
-        /**
-         * Contains the corner of the rectangle in the order: left top, left bottom, right bottom, right top.
-         */
+        /** Contains the corner of the rectangle in the order: left top, left bottom, right bottom, right top. */
         std::array<PointF, 4> corners;
     };
 

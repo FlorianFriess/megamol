@@ -41,24 +41,6 @@ namespace megamol::encoder {
 
             // register modules here:
             this->module_descriptions.RegisterAutoDescription<megamol::encoder::CpuVideoEncoder>();
-            //
-            // TODO: Register your plugin's modules here
-            // like:
-            //   this->module_descriptions.RegisterAutoDescription<megamol::encoder::MyModule1>();
-            //   this->module_descriptions.RegisterAutoDescription<megamol::encoder::MyModule2>();
-            //   ...
-            //
-
-            // register calls here:
-
-            //
-            // TODO: Register your plugin's calls here
-            // like:
-            //   this->call_descriptions.RegisterAutoDescription<megamol::encoder::MyCall1>();
-            //   this->call_descriptions.RegisterAutoDescription<megamol::encoder::MyCall2>();
-            //   ...
-            //
-
         }
     };
 } // namespace megamol::encoder

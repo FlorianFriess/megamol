@@ -15,11 +15,7 @@
 megamol::encoder::LatencyMeasurement::~LatencyMeasurement(void) {
     // Stop the print thread.
     this->isRunning.store(false);
-    {
-        std::lock_guard<std::mutex> lock(this->printDataMutex);
-        this->printDataState = true;
-    }
-    this->printDataEvent.notify_one();
+    this->printDataEvent.Set();
     if (this->printThread.joinable()) {
         this->printThread.join();
     }
@@ -62,11 +58,7 @@ void megamol::encoder::LatencyMeasurement::AddMeasurement(const double diff) {
         }
 
         // Inform the print thread that there is new data to print.
-        {
-            std::lock_guard<std::mutex> lock(this->printDataMutex);
-            this->printDataState = true;
-        }
-        this->printDataEvent.notify_one();
+        this->printDataEvent.Set();
     }
 }
 
@@ -190,8 +182,6 @@ megamol::encoder::LatencyMeasurement::LatencyMeasurement(void)
         , isRunning(false)
         , measurementCnt(0)
         , printDataEvent()
-        , printDataMutex()
-        , printDataState(false)
         , printThread()
         , storageBuffer(64)
         , readIdx(0)
@@ -205,10 +195,7 @@ void megamol::encoder::LatencyMeasurement::printData(void) {
     // Print data until the programme terminates.
     while (this->isRunning.load()) {
         // Wait until data is ready.
-        std::unique_lock<std::mutex> lock(this->printDataMutex);
-        this->printDataEvent.wait(lock, [&] { return this->printDataState; });
-        this->printDataState = false;
-        lock.unlock();
+        this->printDataEvent.Wait();
 
         // Get the next block of data.
         auto curIdx = this->readIdx.load();

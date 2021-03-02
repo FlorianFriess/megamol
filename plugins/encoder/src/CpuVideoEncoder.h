@@ -91,9 +91,22 @@ namespace encoder {
         virtual void onInputCall(megamol::core::view::CallRender3D_2& call);
 
         /**
+         * Implementation of 'AbstractVideoEncoder::onInputMPI'.
+         */
+        #ifdef WITH_NETWORK
+        virtual void onInputMPI(std::vector<std::pair<void*, size_t>>& data, const size_t dataCnt,
+            const megamol::network::IntraDataType dataType);
+        #endif
+
+        /**
          * Implementation of 'Release'.
          */
         virtual void release(void);
+
+        /**
+         * Implementation of 'stopEncoder'.
+         */
+        virtual void stopEncoder(void);
 
     private:
 #pragma region struct X264Data
@@ -104,34 +117,22 @@ namespace encoder {
             /** Ctor */
             X264Data(void) : encoder(nullptr), inputFrame(), nal(nullptr), nalCnt(0u), outputFrame(), param() {}
 
-            /**
-             * Pointer of the x264 encoder.
-             */
+            /** Pointer of the x264 encoder. */
             x264_t* encoder;
 
-            /**
-             * The input frame.
-             */
+            /** The input frame. */
             x264_picture_t inputFrame;
 
-            /**
-             * Contains the nal data of the encoded frame.
-             */
+            /** Contains the nal data of the encoded frame. */
             x264_nal_t* nal;
 
-            /**
-             * The number of nals.
-             */
+            /** The number of nals. */
             int nalCnt;
 
-            /**
-             * The output frame.
-             */
+            /** The output frame. */
             x264_picture_t outputFrame;
 
-            /**
-             * The parameter set used to initialise the encoder.
-             */
+            /** The parameter set used to initialise the encoder. */
             x264_param_t param;
         };
 #pragma endregion
@@ -143,39 +144,25 @@ namespace encoder {
             /** Ctor */
             X265Data(void) : encoder(nullptr), inputFrame(), nal(nullptr), nalCnt(0u), outputFrame(), param() {}
 
-            /**
-             * Pointer of the x265 encoder.
-             */
+            /** Pointer of the x265 encoder. */
             x265_encoder* encoder;
 
-            /**
-             * The input frame.
-             */
+            /** The input frame. */
             x265_picture inputFrame;
 
-            /**
-             * Contains the nal data of the encoded frame.
-             */
+            /** Contains the nal data of the encoded frame. */
             x265_nal* nal;
 
-            /**
-             * The number of nals.
-             */
+            /** The number of nals. */
             uint32_t nalCnt;
 
-            /**
-             * The output frame.
-             */
+            /** The output frame. */
             x265_picture outputFrame;
 
-            /**
-             * The parameter set used to initialise the encoder.
-             */
+            /** The parameter set used to initialise the encoder. */
             x265_param param;
 
-            /**
-             * Store the converted YUV420 (planar) image.
-             */
+            /** Store the converted YUV420 (planar) image. */
             std::vector<BYTE> yuv420Image;
         };
 #pragma endregion
@@ -266,14 +253,10 @@ namespace encoder {
          */
         void separateImageAVX(void);
 
-        /**
-         * Flag that indicates if the encoder still accept frames for encoding.
-         */
+        /** Flag that indicates if the encoder still accept frames for encoding. */
         std::atomic<bool> acceptFrames;
 
-        /**
-         * Indicates if the encoder needs to be created.
-         */
+        /** Indicates if the encoder needs to be created. */
         std::atomic<bool> createEnc;
 
         /**
@@ -281,49 +264,31 @@ namespace encoder {
          */
         std::vector<BYTE> data;
 
-        /**
-         * Used to hold the data of the framebuffer in main memory.
-         */
+        /** Used to hold the data of the framebuffer in main memory. */
         std::vector<BYTE> dataOpenGL;
 
-        /**
-         * Remeber the size (widht * height) of the image as we need that for encoding.
-         */
+        /** Remeber the size (widht * height) of the image as we need that for encoding. */
         size_t imageSize;
 
-        /**
-         * The latency measurements for the encoding call.
-         */
+        /** The latency measurements for the encoding call. */
         LatencyMeasurement latencyMeasurementEncoding;
 
-        /**
-         * The latency measurements for converting the frame from BGR to YUV420.
-         */
+        /** The latency measurements for converting the frame from BGR to YUV420. */
         LatencyMeasurement latencyMeasurementFormatConversion;
 
-        /**
-         * The latency measurements for downloading the frame from OpnGL.
-         */
+        /** The latency measurements for downloading the frame from OpnGL. */
         LatencyMeasurement latencyMeasurementOpenGLCopy;
 
-        /**
-         * The latency measurements for the processing of the output.
-         */
+        /** The latency measurements for the processing of the output. */
         LatencyMeasurement latencyMeasurementProcessOutput;
 
-        /**
-         * The timestamp of the frame that is encoded.
-         */
+        /** The timestamp of the frame that is encoded. */
         int64_t timestamp;
 
-        /**
-         * Contains the data needed by x264 library for encoding.
-         */
+        /** Contains the data needed by x264 library for encoding. */
         X264Data x264Data;
 
-        /**
-         * Contains the data needed by x265 library for encoding.
-         */
+        /** Contains the data needed by x265 library for encoding. */
         X265Data x265Data;
     };
 

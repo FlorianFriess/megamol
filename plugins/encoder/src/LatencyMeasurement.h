@@ -14,6 +14,8 @@
 
 #include "mmcore/utility/log/Log.h"
 
+#include "vislib/sys/Event.h"
+
 #include <algorithm>
 #include <condition_variable>
 #include <functional>
@@ -44,12 +46,12 @@ namespace encoder {
         /**
          * Initialise the measurements.
          *
-         * @param movingAvgSize The number of measurements befor the average, median, minimum,
-         * maximum and the MAD is printed.
+         * @param movingAvgSize The number of measurements befor the average, median, minimum, maximum and the
+         * MAD is printed.
          * @param name The (unique) name of the CSV file that will contain the measurement data.
          *
-         * @returns 'false' in case the CSV file was not created, no data could be written to it
-         * or the instance was already initialised, 'true' otherwise.
+         * @returns 'false' in case the CSV file was not created, no data could be written to it or the instance
+         * was already initialised, 'true' otherwise.
          */
         bool Initialise(const size_t movingAvgSize, const std::string& name);
 
@@ -92,64 +94,34 @@ namespace encoder {
          */
         void printData(void);
 
-        /**
-         * Flag that indicates if the csvFile is empty and can therefore be deleted.
-         */
+        /** Flag that indicates if the csvFile is empty and can therefore be deleted. */
         bool canDelete;
 
-        /**
-         * The handler for the CSV file.
-         */
+        /** The handler for the CSV file. */
         FILE* csvFile;
 
-        /**
-         * The name of the CSV file.
-         */
+        /** The name of the CSV file. */
         std::string csvFileName;
 
-        /**
-         * Controls the lifetime of the printThread.
-         */
+        /** Controls the lifetime of the printThread. */
         std::atomic<bool> isRunning;
 
-        /**
-         * The number of measurements in the storage.
-         */
+        /** The number of measurements in the storage. */
         size_t measurementCnt;
 
-        /**
-         * The event that is signaled once enough measurements have been collected.
-         */
-        std::condition_variable printDataEvent;
+        /** The event that is signaled once enough measurements have been collected. */
+        vislib::sys::Event printDataEvent;
 
-        /**
-         * The mutex that protects the access to printDataState.
-         */
-        std::mutex printDataMutex;
-
-        /**
-         * If this is true, the printDataEvent stops waiting.
-         */
-        bool printDataState;
-
-        /**
-         * The thread that prints the measurments.
-         */
+        /** The thread that prints the measurments. */
         std::thread printThread;
 
-        /**
-         * The ring buffer that contains the measurements.
-         */
+        /** The ring buffer that contains the measurements. */
         std::vector<std::vector<double>> storageBuffer;
 
-        /**
-         * The read index of the storageBuffer.
-         */
+        /** The read index of the storageBuffer. */
         std::atomic<size_t> readIdx;
 
-        /**
-         * The write index of the storageBuffer.
-         */
+        /** The write index of the storageBuffer. */
         std::atomic<size_t> writeIdx;
     };
 

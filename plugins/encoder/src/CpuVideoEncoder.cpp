@@ -60,6 +60,7 @@ void megamol::encoder::CpuVideoEncoder::closeEncoderX264(void) {
 
     // Close the encoder.
     ::x264_encoder_close(this->x264Data.encoder);
+    this->x264Data.encoder = nullptr;
 }
 
 
@@ -94,6 +95,7 @@ void megamol::encoder::CpuVideoEncoder::closeEncoderX265(void) {
 
     // Close the encoder.
     ::x265_encoder_close(this->x265Data.encoder);
+    this->x265Data.encoder = nullptr;
 }
 
 
@@ -271,34 +273,6 @@ void megamol::encoder::CpuVideoEncoder::convertImageAVX(void) {
 /*
  * megamol::encoder::CpuVideoEncoder::create
  */
-bool megamol::encoder::CpuVideoEncoder::createEncoder(const int height, const int width) {
-    // Initialise the buffer to hold the copy of the framebuffer in main memory.
-    this->dataOpenGL.resize(static_cast<size_t>(this->width) * static_cast<size_t>(this->height) * size_t(4), 0);
-    this->data.resize(static_cast<size_t>(this->width) * static_cast<size_t>(this->height) * size_t(3), 0);
-
-    // Check which codec should be used, (0 == h264, 1 == h265).
-    auto codec = this->encoderCodec.Param<core::param::EnumParam>()->Value();
-    if (codec == 0) {
-        // Close the old encoder.
-        this->closeEncoderX264();
-
-        // Create the x264 encoder.
-        return this->createEncoderX264(height, width);
-
-    } else {
-        // Close the old encoder.
-        this->closeEncoderX265();
-
-        // Create the x265 encoder.
-        return this->createEncoderX265(height, width);
-    }
-    return false;
-}
-
-
-/*
- * megamol::encoder::CpuVideoEncoder::create
- */
 bool megamol::encoder::CpuVideoEncoder::create(void) {
     // Call the create function of the parent first.
     auto retval = megamol::encoder::AbstractVideoEncoder::create();
@@ -312,13 +286,35 @@ bool megamol::encoder::CpuVideoEncoder::create(void) {
 
 
 /*
+ * megamol::encoder::CpuVideoEncoder::createEncoder
+ */
+bool megamol::encoder::CpuVideoEncoder::createEncoder(const int height, const int width) {
+    // Initialise the buffer to hold the copy of the framebuffer in main memory.
+    this->dataOpenGL.resize(static_cast<size_t>(this->width) * static_cast<size_t>(this->height) * size_t(4), 0);
+    this->data.resize(static_cast<size_t>(this->width) * static_cast<size_t>(this->height) * size_t(3), 0);
+
+    // Check which codec should be used, (0 == h264, 1 == h265).
+    auto codec = this->encoderCodec.Param<core::param::EnumParam>()->Value();
+    if (codec == 0) {
+        // Create the x264 encoder.
+        return this->createEncoderX264(height, width);
+
+    } else {
+        // Create the x265 encoder.
+        return this->createEncoderX265(height, width);
+    }
+    return false;
+}
+
+
+/*
  * megamol::encoder::CpuVideoEncoder::createEncoderX264
  */
 bool megamol::encoder::CpuVideoEncoder::createEncoderX264(const int height, const int width) {
     // Get the default encoder preset of x264.
     auto error = ::x264_param_default_preset(&this->x264Data.param, "ultrafast", "zerolatency");
     if (error < 0) {
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
             "Unable to load default parameter preset for x264 with error %d", error);
         return false;
     }
@@ -366,7 +362,7 @@ bool megamol::encoder::CpuVideoEncoder::createEncoderX264(const int height, cons
     // Apply the changes.
     error = ::x264_param_apply_profile(&this->x264Data.param, "high444");
     if (error < 0) {
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
             "Unable to apply changes to default parameter preset for x264 with error %d", error);
         return false;
     }
@@ -374,8 +370,7 @@ bool megamol::encoder::CpuVideoEncoder::createEncoderX264(const int height, cons
     // Open the encoder.
     this->x264Data.encoder = x264_encoder_open(&this->x264Data.param);
     if (this->x264Data.encoder == nullptr) {
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(
-            megamol::core::utility::log::Log::LEVEL_ERROR, "Unable to open x264 encoder with error %d", error);
+        megamol::core::utility::log::Log::DefaultLog.WriteError("Unable to open x264 encoder with error %d", error);
         return false;
     }
 
@@ -396,7 +391,7 @@ bool megamol::encoder::CpuVideoEncoder::createEncoderX265(const int height, cons
     // Get the default encoder preset of x265.medium
     auto error = ::x265_param_default_preset(&this->x265Data.param, "ultrafast", "zerolatency");
     if (error < 0) {
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
             "Unable to load default parameter preset for x265 with error %d", error);
         return false;
     }
@@ -442,7 +437,7 @@ bool megamol::encoder::CpuVideoEncoder::createEncoderX265(const int height, cons
     // Apply the changes.
     error = ::x265_param_apply_profile(&this->x265Data.param, "main");
     if (error < 0) {
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
             "Unable to apply changes to default parameter preset for x265 with error %d", error);
         return false;
     }
@@ -450,8 +445,7 @@ bool megamol::encoder::CpuVideoEncoder::createEncoderX265(const int height, cons
     // Open the encoder.
     this->x265Data.encoder= ::x265_encoder_open(&this->x265Data.param);
     if (this->x265Data.encoder == nullptr) {
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
-            "Unable to open x265 encoder with error %d", error);
+        megamol::core::utility::log::Log::DefaultLog.WriteError("Unable to open x265 encoder with error %d", error);
         return false;
     }
 
@@ -470,8 +464,8 @@ bool megamol::encoder::CpuVideoEncoder::createEncoderX265(const int height, cons
 void megamol::encoder::CpuVideoEncoder::encodeFrame(void) {
     // Check if the encoder currently accepts frames.
     if (!this->acceptFrames.load()) {
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_WARN,
-            "The encoder is currently not accepting frames for encoding.", nullptr);
+        megamol::core::utility::log::Log::DefaultLog.WriteWarn(
+            "The encoder is currently not accepting frames for encoding.");
         return;
     }
 
@@ -547,7 +541,7 @@ void megamol::encoder::CpuVideoEncoder::encodeFrameX264(void) {
     // Check the return value of the encode call.
     if (ret < 0) {
         // An error occured in the last encode call.
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
             "Failed to encode the frame 0x%p with timestamp %lld with error %d", this->data.data(), this->timestamp,
             ret);
 
@@ -617,7 +611,7 @@ void megamol::encoder::CpuVideoEncoder::encodeFrameX264Foveated(void) {
     // Check the return value of the encode call.
     if (ret < 0) {
         // An error occured in the last encode call.
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
             "Failed to encode the frame 0x%p with timestamp %lld with error %d", this->data.data(), this->timestamp,
             ret);
 
@@ -682,7 +676,7 @@ void megamol::encoder::CpuVideoEncoder::encodeFrameX265(void) {
     // Check the return value of the encode call.
     if (ret < 0) {
         // An error occured in the last encode call.
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
             "Failed to encode the frame 0x%p with timestamp %lld with error %d", this->x265Data.yuv420Image.data(),
             this->timestamp, ret);
 
@@ -756,7 +750,7 @@ void megamol::encoder::CpuVideoEncoder::encodeFrameX265Foveated(void) {
     // Check the return value of the encode call.
     if (ret < 0) {
         // An error occured in the last encode call.
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
+        megamol::core::utility::log::Log::DefaultLog.WriteError(
             "Failed to encode the frame 0x%p with timestamp %lld with error %d", this->x265Data.yuv420Image.data(),
             this->timestamp, ret);
 
@@ -795,7 +789,7 @@ void megamol::encoder::CpuVideoEncoder::encodeFrameX265Foveated(void) {
  */
 void megamol::encoder::CpuVideoEncoder::flipImage(void) {
     // Check if the frame should be flipped.
-    if (this->flippFrames.Param<megamol::core::param::BoolParam>()->Value()) {
+    if (this->flipFrames.Param<megamol::core::param::BoolParam>()->Value()) {
         // Check if the latency should be measured.
         double start = 0.0;
         if (this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->Value()) {
@@ -843,15 +837,9 @@ void megamol::encoder::CpuVideoEncoder::initialiseEncoder(void) {
         return;
     }
 
-    // Check if the user wants to use foveation.
-    if (this->useFoveated.Param<megamol::core::param::BoolParam>()->Value()) {
-        this->initialiseFoveated();
-    }
-
     // Create the encoder, and check if it worked.
     if (!this->createEncoder(this->height, this->width)) {
-        megamol::core::utility::log::Log::DefaultLog.WriteMsg(megamol::core::utility::log::Log::LEVEL_ERROR,
-            "Unable to create encoder, not data will be encoded", nullptr);
+        megamol::core::utility::log::Log::DefaultLog.WriteError("Unable to create encoder, not data will be encoded");
         return;
     }
 }
@@ -861,23 +849,26 @@ void megamol::encoder::CpuVideoEncoder::initialiseEncoder(void) {
  * megamol::encoder::CpuVideoEncoder::initialiseSpecialLatencyMeasurements
  */
 void megamol::encoder::CpuVideoEncoder::initialiseSpecialLatencyMeasurements(void) {
-    // Check if the input mode is Call and not MPI.
-    if (this->inputMode.Param<megamol::core::param::EnumParam>()->Value() == 0) {
-        // Add measurements for the copy from OpenGL to main memory.
-        this->latencyMeasurementOpenGLCopy.Initialise(2000, ".\\OpenGLCopy.csv");
+    // Check if latency measurements are turned on.
+    if (this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->Value()) {
+        // Check if the input mode is Call and not MPI.
+        if (this->inputMode.Param<megamol::core::param::EnumParam>()->Value() == 0) {
+            // Add measurements for the copy from OpenGL to main memory.
+            this->latencyMeasurementOpenGLCopy.Initialise(2000, ".\\OpenGLCopy.csv");
+        }
+
+        // Check if the x265 encoder is used.
+        if (this->encoderCodec.Param<megamol::core::param::EnumParam>()->Value() == 1) {
+            // Add measurements for converting the image from BGR to YUV420.
+            this->latencyMeasurementFormatConversion.Initialise(2000, ".\\FormatConversion.csv");
+        }
+
+        // Add measurements for encoding.
+        this->latencyMeasurementEncoding.Initialise(2000, ".\\Encoding.csv");
+
+        // Add measurements for encoding.
+        this->latencyMeasurementProcessOutput.Initialise(2000, ".\\ProcessOutput.csv");
     }
-
-    // Check if the x265 encoder is used.
-    if (this->encoderCodec.Param<megamol::core::param::EnumParam>()->Value() == 1) {
-        // Add measurements for converting the image from BGR to YUV420.
-        this->latencyMeasurementFormatConversion.Initialise(2000, ".\\FormatConversion.csv");
-    }
-
-    // Add measurements for encoding.
-    this->latencyMeasurementEncoding.Initialise(2000, ".\\Encoding.csv");
-
-    // Add measurements for encoding.
-    this->latencyMeasurementProcessOutput.Initialise(2000, ".\\ProcessOutput.csv");
 }
 
 
@@ -933,6 +924,84 @@ void megamol::encoder::CpuVideoEncoder::onInputCall(megamol::core::view::CallRen
         this->onInputCallX265(call);
     }
 }
+
+
+/*
+ * megamol::encoder::CpuVideoEncoder::onInputMPI
+ */
+#ifdef WITH_NETWORK
+void megamol::encoder::CpuVideoEncoder::onInputMPI(
+    std::vector<std::pair<void*, size_t>>& data, const size_t dataCnt, const megamol::network::IntraDataType dataType) {
+    // Loop over all delivered data.
+    for (size_t i = 0; i < dataCnt; ++i) {
+        // Loop over all coalesced messages.
+        size_t idx = 0;
+        BYTE* dataPtr = reinterpret_cast<BYTE*>(data[i].first);
+        while (idx < data[i].second) {
+            // Extract the next message header
+            auto header = reinterpret_cast<megamol::network::Message*>(dataPtr + idx);
+            idx += sizeof(megamol::network::Message);
+
+            // Check if this is a raw bitstream.
+            if (dataType == megamol::network::IntraDataType::BITSTREAM) {
+                // Check if the resolution changed.
+                if (this->height != header->Height || this->width != header->Width) {
+                    this->height = header->Height;
+                    this->width = header->Width;
+                    this->createEnc.store(true);
+                }
+
+                // Check if the encoder needs to be initialised.
+                if (this->createEnc.load()) {
+                    // Initialise the encoder.
+                    this->initialiseEncoder();
+                    this->createEnc.store(false);
+                }
+
+                // Check if the latency should be measured.
+                double start = 0.0;
+                if (this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->Value()) {
+                    start = vislib::sys::PerformanceCounter::QueryMillis();
+                    this->timestamp = static_cast<int64_t>(start);
+
+                } else {
+                    this->timestamp += header->Timestamp;
+                }
+
+                // Get the raw data.
+                ::memcpy(this->data.data(), dataPtr + idx, header->DataCnt * sizeof(BYTE));
+
+                // Check if the latency should be measured.
+                if (this->latencyMeasurement.Param<megamol::core::param::BoolParam>()->Value()) {
+                    this->latencyMeasurementOpenGLCopy.AddMeasurement(
+                        vislib::sys::PerformanceCounter::QueryMillis() - start);
+                }
+
+                // Encode the frame.
+                this->encodeFrame();
+
+            } else if (dataType == megamol::network::IntraDataType::FOVEATEDREGION) {
+                // Get the pointer to the foveated rectangles and the number of valid rectangles.
+                FovRect* regions = reinterpret_cast<FovRect*>(dataPtr + idx);
+                uint32_t regionCnt = header->DataCnt / sizeof(FovRect);
+                this->checkMBIntersectionFrame(regions, regionCnt, header->Timestamp);
+
+            } else {
+                // This type of data is not expected by the encoder so write a warning...
+                #if 0
+                megamol::core::utility::log::Log::DefaultLog.WriteWarn(
+                    "CpuVideoEncoder received unexpected data of type %d via MPI. Skipping this...", static_cast<int>(dataType));
+                #else
+                this->processOutput(dataPtr + idx, header->DataCnt, sizeof(BYTE), header->Timestamp);
+                #endif
+            }
+
+            // Skip the data.
+            idx += header->DataCnt;
+        }
+    }
+}
+#endif
 
 
 /*
@@ -1014,16 +1083,8 @@ void megamol::encoder::CpuVideoEncoder::release(void) {
     // Call the release function of the parent first.
     megamol::encoder::AbstractVideoEncoder::release();
 
-    // Check which codec was used, (0 == h264, 1 == h265).
-    auto codec = this->encoderCodec.Param<core::param::EnumParam>()->Value();
-    if (codec == 0) {
-        // Flush and close the x264 encoder.
-        this->closeEncoderX264();
-
-    } else {
-        // Flush and close the x265 encoder.
-        this->closeEncoderX265();
-    }
+    // Stop the encoder.
+    this->stopEncoder();
 }
 
 
@@ -1092,5 +1153,22 @@ void megamol::encoder::CpuVideoEncoder::separateImageAVX(void) {
                     _mm256_blend_epi32(permutated2, _mm256_blend_epi32(permutated0, permutated1, 192), 240), 243),
                 permMaskR));
         dstPtrR++;
+    }
+}
+
+
+/*
+ * megamol::encoder::CpuVideoEncoder::stopEncoder
+ */
+void megamol::encoder::CpuVideoEncoder::stopEncoder(void) {
+    // Check which codec should be used, (0 == h264, 1 == h265).
+    auto codec = this->encoderCodec.Param<core::param::EnumParam>()->Value();
+    if (codec == 0) {
+        // Close the old encoder.
+        this->closeEncoderX264();
+
+    } else {
+        // Close the old encoder.
+        this->closeEncoderX265();
     }
 }

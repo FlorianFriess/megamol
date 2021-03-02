@@ -1,6 +1,6 @@
 #
 # MegaMol™ network Plugin
-# Copyright 2017, by MegaMol Team
+# Copyright 2021, by MegaMol Team
 # Alle Rechte vorbehalten. All rights reserved.
 #
 string(TOUPPER network EXPORT_NAME)
@@ -29,7 +29,7 @@ if(BUILD_${EXPORT_NAME}_PLUGIN)
   if(MPI_C_FOUND)
     target_link_libraries(${PROJECT_NAME} PRIVATE core MPI::MPI_C)
   else()
-  target_link_libraries(${PROJECT_NAME} PRIVATE core)
+	target_link_libraries(${PROJECT_NAME} PRIVATE core)
   endif()
 
   # Installation rules for generated files
