@@ -168,7 +168,7 @@ namespace gui {
             return name_space;
         }
 
-        std::string GetValueString(void);
+        std::string GetValueString(void) const;
 
         Value_t& GetValue(void) {
             return this->value;
@@ -278,8 +278,8 @@ namespace gui {
 
         // Presentation ----------------------------------------------------
 
-        inline bool PresentGUI(ParameterPresentation::WidgetScope scope) {
-            return this->present.Present(*this, scope);
+        inline bool PresentGUI(ParameterPresentation::WidgetScope scope, const std::string& module_fullname) {
+            return this->present.Present(*this, scope, module_fullname);
         }
 
     private:
